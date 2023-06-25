@@ -1,0 +1,136 @@
+---
+title: "NYPD Shooting Incident Data"
+date: "2023-05-30"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+### Import Data 
+
+- The data set includes a list of every shooting incident in New York City starting in 2006. Data source from here: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic 
+- My analysis focused on looking at incident count by various categories. I first focused on location by bourough, to see if there was a different in incidents by location. After that, I looked at incidents based on demographics of the perpetrators. I also looked a linear model of the total incidents over time to look at that trend. 
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+
+# Import data 
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPD_dat <- read_csv(url_in)
+```
+
+### Tidy data
+
+- Clean up the data by changing the OCCUR_DATE column to date, removing unwanted columns, changing headings, changing variables to factors, and sorting the data by date. 
+
+```{r, echo=FALSE, warning=FALSE}
+# Change OCCUR_DATE column from character to date
+NYPD_dat <- NYPD_dat %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+
+# Remove unwanted columns
+NYPD_dat <- NYPD_dat %>% select(-c(INCIDENT_KEY, JURISDICTION_CODE, LOC_OF_OCCUR_DESC, LOCATION_DESC, LOC_CLASSFCTN_DESC, STATISTICAL_MURDER_FLAG, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+
+# Change column headings
+colnames(NYPD_dat) <- c("Date", "Time", "Borough", "Precinct", "Perp_Age", "Perp_Sex", "Perp_Race", "Vic_Age", "Vic_Sex", "Vic_Race")
+
+# Create variable of column names to change to factors
+cols <- c("Borough", "Perp_Age", "Perp_Sex", "Perp_Race", "Vic_Age", "Vic_Sex", "Vic_Race")
+
+# Change cols column headings to factors
+NYPD_dat <- NYPD_dat %>% mutate_each_(funs(factor(.)),cols)
+
+# Remove NA data. I plan to filter out "(null)", "UNKNOWN" and other missing values as needed
+NYPD_dat  <- NYPD_dat %>% drop_na(c(Perp_Age, Perp_Sex, Perp_Race, Vic_Age, Vic_Sex, Vic_Race))
+
+# Sort data by date
+NYPD_dat <- NYPD_dat %>% arrange(Date)
+
+# Add year column for analysis 
+NYPD_dat$Year <- format(as.Date(NYPD_dat$Date), "%Y")
+```
+
+
+- Below is the final summary and first 10 rows of the data frame. I removed NA's, but also plan to filter out "(null)" or "UNKNOWN" values if needed for the analysis.
+
+```{r, echo=FALSE, warning=FALSE}
+# Turn into data frame
+NYPD_dat <- as.data.frame(NYPD_dat)
+
+# Print summary 
+summary(NYPD_dat)
+
+# Display first 10 rows of dataframe 
+head(NYPD_dat, n=10)
+```
+
+
+### Visualization #1: Number of shooting incidents each year, by Borough
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Create histogram 
+a <- ggplot(NYPD_dat, aes(x=Date, y=after_stat(count), col=Borough))
+a + geom_histogram(width = .5, size=1) +
+  labs(y="Incident Count", 
+       x="Date", 
+       title="NYPD Incidents Over Time by Borough")+ theme_bw() +
+  theme(plot.title = element_text(hjust=0.5)) 
+```
+
+### Visualization #2: Perpetrator Age and Sex 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Create age dataframe, filtering out "UNKNOWN" and incorrect age values, and only including M/F for sex 
+age <- NYPD_dat %>% filter(NYPD_dat$Perp_Age %in% c("<18", "18-24", "25-44", "45-64", "65+"), NYPD_dat$Vic_Age %in% c("<18", "18-24", "25-44", "45-64", "65+"), NYPD_dat$Perp_Sex %in% c("M", "F"))
+
+# Create bar plot 
+ggplot(age, aes(Perp_Age, fill=Perp_Sex)) + 
+  geom_bar() +
+  labs(y="Incident Count", x="Age", title="NYPD Incidents: Perpetrator Age and Sex")+ 
+  theme_bw() +
+  theme(plot.title = element_text(hjust=0.5)) +
+  guides(fill = guide_legend(title = "Sex"))
+
+```
+
+### Model: Linear Regression of Incidents over time and summary of model 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Create new datadrame with the yearly incident counts
+NYPD_Yearly <- NYPD_dat %>% group_by(Year) %>% count() 
+
+# Change column names
+colnames(NYPD_Yearly) <- c("Year", "Incidents")
+
+# Change Year column to integer
+NYPD_Yearly$Year <- as.numeric(NYPD_Yearly$Year)
+NYPD_Yearly$Incidents <- as.numeric(NYPD_Yearly$Incidents)
+
+
+# Scatter plot with linear model 
+ggplot(NYPD_Yearly, aes(Year, Incidents)) + geom_point() + geom_smooth(method="lm") + 
+  labs( title="NYPD Incidents By Year")+ theme_bw() +
+  theme(plot.title = element_text(hjust=0.5))
+  
+# Create linear regression model and display summary  
+mod <- lm(Incidents ~ Year, data=NYPD_Yearly)
+summary(mod)
+
+```
+### Conclusion and Bias
+
+- There were some differences between the different boroughs and number of incidents. While it appears Staten Island is the lowest, it only includes total numbers, but not the proportion of incidents to population. We would need to calculate the proportion for each section in order to compare them and prevent bias. 
+
+- For the bar chart, it's clear that the main perpetrators were males in the 18-24 and 25-44 age ranges.This confirms a personal bias, but I wanted to include male vs female to see the differences. 
+
+- There may be a correlation between year and the number of shooting incidents in New York.While I only tried a linear model, there may be better models that will better fit the data. There is an outlier for the last year, and the acutal data indicates more of a curve, instead of a straight line. 
+
+```{r, echo=TRUE}
+sessionInfo()
+``` 
